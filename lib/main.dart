@@ -191,28 +191,26 @@ class _TaskListScreenState extends State<TaskListScreen> {
 
   void filterTasks() {
     setState(() {
+      List<Task> temp = tasks;
       if (filterType == 'Completed') {
-        filteredTasks = tasks.where((t) => t.isCompleted).toList();
+        temp = tasks.where((t) => t.isCompleted).toList();
       } else if (filterType == 'Pending') {
-        filteredTasks = tasks.where((t) => !t.isCompleted).toList();
-      } else {
-        filteredTasks = tasks;
+        temp = tasks.where((t) => !t.isCompleted).toList();
       }
-      applySearch();
-    });
-  }
 
-  void applySearch() {
-    setState(() {
       if (searchController.text.isEmpty) {
-        filterTasks();
+        filteredTasks = temp;
       } else {
         final query = searchController.text.toLowerCase();
-        filteredTasks = filteredTasks
+        filteredTasks = temp
             .where((t) => t.name.toLowerCase().contains(query))
             .toList();
       }
     });
+  }
+
+  void applySearch() {
+    filterTasks();
   }
 
   int getCompletedCount() => tasks.where((t) => t.isCompleted).length;
