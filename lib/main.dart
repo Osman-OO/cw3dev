@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const TaskManagerApp());
 }
 
@@ -93,9 +94,12 @@ class TaskListScreen extends StatefulWidget {
 
 class _TaskListScreenState extends State<TaskListScreen> {
   List<Task> tasks = [];
+  List<Task> filteredTasks = [];
   final TextEditingController taskController = TextEditingController();
+  final TextEditingController searchController = TextEditingController();
   String selectedPriority = 'Medium';
   late SharedPreferences prefs;
+  String filterType = 'All';
 
   @override
   void initState() {
@@ -111,6 +115,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
       setState(() {
         tasks = decoded.map((item) => Task.fromJson(item)).toList();
         sortTasksByPriority();
+        filteredTasks = tasks;
       });
     }
   }
@@ -143,6 +148,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
         ),
       );
       sortTasksByPriority();
+      filterTasks();
     });
     saveTasks();
     taskController.clear();
@@ -151,25 +157,66 @@ class _TaskListScreenState extends State<TaskListScreen> {
 
   void toggleTaskCompletion(int index) {
     setState(() {
-      tasks[index].isCompleted = !tasks[index].isCompleted;
+      final taskId = filteredTasks[index].id;
+      final taskIndex = tasks.indexWhere((t) => t.id == taskId);
+      if (taskIndex != -1) {
+        tasks[taskIndex].isCompleted = !tasks[taskIndex].isCompleted;
+      }
+      filterTasks();
     });
     saveTasks();
   }
 
   void deleteTask(int index) {
     setState(() {
-      tasks.removeAt(index);
+      final taskId = filteredTasks[index].id;
+      tasks.removeWhere((t) => t.id == taskId);
+      filterTasks();
     });
     saveTasks();
   }
 
   void updateTaskPriority(int index, String newPriority) {
     setState(() {
-      tasks[index].priority = newPriority;
-      sortTasksByPriority();
+      final taskId = filteredTasks[index].id;
+      final taskIndex = tasks.indexWhere((t) => t.id == taskId);
+      if (taskIndex != -1) {
+        tasks[taskIndex].priority = newPriority;
+        sortTasksByPriority();
+      }
+      filterTasks();
     });
     saveTasks();
   }
+
+  void filterTasks() {
+    setState(() {
+      if (filterType == 'Completed') {
+        filteredTasks = tasks.where((t) => t.isCompleted).toList();
+      } else if (filterType == 'Pending') {
+        filteredTasks = tasks.where((t) => !t.isCompleted).toList();
+      } else {
+        filteredTasks = tasks;
+      }
+      applySearch();
+    });
+  }
+
+  void applySearch() {
+    setState(() {
+      if (searchController.text.isEmpty) {
+        filterTasks();
+      } else {
+        final query = searchController.text.toLowerCase();
+        filteredTasks = filteredTasks
+            .where((t) => t.name.toLowerCase().contains(query))
+            .toList();
+      }
+    });
+  }
+
+  int getCompletedCount() => tasks.where((t) => t.isCompleted).length;
+  int getPendingCount() => tasks.where((t) => !t.isCompleted).length;
 
   @override
   Widget build(BuildContext context) {
@@ -235,21 +282,77 @@ class _TaskListScreenState extends State<TaskListScreen> {
                     child: const Text('Add Task'),
                   ),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search tasks',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                  ),
+                  onChanged: (_) => applySearch(),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: ['All', 'Completed', 'Pending']
+                              .map(
+                                (filter) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: FilterChip(
+                                    label: Text(filter),
+                                    selected: filterType == filter,
+                                    onSelected: (_) {
+                                      setState(() {
+                                        filterType = filter;
+                                        filterTasks();
+                                      });
+                                    },
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildStatCard('Total', tasks.length.toString()),
+                    _buildStatCard('Completed', getCompletedCount().toString()),
+                    _buildStatCard('Pending', getPendingCount().toString()),
+                  ],
+                ),
               ],
             ),
           ),
           Expanded(
-            child: tasks.isEmpty
+            child: filteredTasks.isEmpty
                 ? Center(
                     child: Text(
-                      'No tasks yet. Add one to get started!',
+                      tasks.isEmpty
+                          ? 'No tasks yet. Add one to get started!'
+                          : 'No tasks match your filter',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                   )
                 : ListView.builder(
-                    itemCount: tasks.length,
+                    itemCount: filteredTasks.length,
                     itemBuilder: (context, index) {
-                      final task = tasks[index];
+                      final task = filteredTasks[index];
                       return TaskTile(
                         task: task,
                         onToggle: () => toggleTaskCompletion(index),
@@ -265,9 +368,27 @@ class _TaskListScreenState extends State<TaskListScreen> {
     );
   }
 
+  Widget _buildStatCard(String label, String value) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            Text(label),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     taskController.dispose();
+    searchController.dispose();
     super.dispose();
   }
 }
